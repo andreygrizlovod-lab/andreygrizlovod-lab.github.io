@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Подход — программа, техника и прогресс для тренера и его клиентов.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Подход">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Подход</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Telegram Mini App SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    /* Фирменный тёмный фон до загрузки движка — без белой вспышки. */
+    html, body { background: #0B0B0F; margin: 0; padding: 0; height: 100%; }
+    /* Telegram сворачивает мини-апп на вертикальный свайп — глушим
+       нативный скролл/оверскролл страницы: контентом рулит Flutter. */
+    html, body {
+      overflow: hidden;
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      overscroll-behavior: none;
+    }
+    #splash {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      background: #0B0B0F; z-index: 10; transition: opacity .3s ease;
+    }
+    #splash img {
+      width: 72%; max-width: 420px; border-radius: 16px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .55; }
+    }
+  </style>
+</head>
+<body>
+  <div id="splash"><img src="logo.png" alt="APPROACH"></div>
+
+  <script>
+    // Инициализация внутри Telegram: раскрываем на весь экран,
+    // красим шапку в фирменный фон. Вне Telegram скрипт просто молчит.
+    (function () {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (!tg) return;
+      try {
+        tg.ready();
+        tg.expand();
+        tg.setHeaderColor('#0B0B0F');
+        tg.setBackgroundColor('#0B0B0F');
+        if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+        // Подстраховка для клиентов без disableVerticalSwipes:
+        // случайное закрытие теперь требует подтверждения.
+        if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+      } catch (e) { /* старые клиенты Telegram */ }
+    })();
+
+    // Не даём странице скроллиться самой: жесты Flutter получает через
+    // pointer-события, а нативный пан больше не дёргает сворачивание TG.
+    document.addEventListener('touchmove', function (e) {
+      e.preventDefault();
+    }, { passive: false });
+
+    // Прячем сплэш, когда Flutter отрисовался.
+    window.addEventListener('flutter-first-frame', function () {
+      var s = document.getElementById('splash');
+      if (s) { s.style.opacity = '0'; setTimeout(function(){ s.remove(); }, 350); }
+    });
+
+    // Надёжный шэринг ссылки: Telegram → нативный share → буфер.
+    // Возвращает 'tg' | 'native' | 'copied' | 'none'.
+    window.podShare = function (text, url) {
+      try {
+        var tg = window.Telegram && window.Telegram.WebApp;
+        if (tg && tg.openTelegramLink) {
+          tg.openTelegramLink('https://t.me/share/url?url=' +
+            encodeURIComponent(url) + '&text=' + encodeURIComponent(text));
+          return 'tg';
+        }
+      } catch (e) {}
+      try {
+        if (navigator.share) { navigator.share({ text: text, url: url }); return 'native'; }
+      } catch (e) {}
+      return window.podCopy(url) ? 'copied' : 'none';
+    };
+
+    // Надёжное копирование с запасным путём через execCommand.
+    window.podCopy = function (text) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text); return true;
+        }
+      } catch (e) {}
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) { return false; }
+    };
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
