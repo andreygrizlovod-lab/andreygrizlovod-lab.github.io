@@ -877,7 +877,10 @@ function showResult(){
   $('resBar').style.width = score+'%';
   lastResult = { score, total, deep, formOkCount };
   $('shareBtn').style.display = total ? 'block' : 'none';
-  if (total) logCheck(score, Math.min(total, 500), Math.min(deep, 500));
+  if (total){
+    logCheck(score, Math.min(total, 500), Math.min(deep, 500));
+    notifyTrainer(score);
+  }
   $('result').style.display='flex';
 }
 
@@ -886,19 +889,44 @@ const SB_URL = 'https://aoxqbdcryxhtxguxjtzg.supabase.co';
 const SB_KEY = 'sb_publishable_C-EUhcuAW0A53KmvwfMBkA_BbKzwnd6';
 let lastResult = null;
 
+// Контекст клиента из приложения ({cid, tid, token}) — кладётся в localStorage
+// перед переходом сюда. Есть контекст → результат улетает в ленту тренера.
+let TCTX = null;
+try { TCTX = JSON.parse(localStorage.getItem('podhod-tech-ctx') || 'null'); } catch (e) {}
+
 let simMode = false; // симуляции не считаются в метрику
+
+function sbPost(path, body, token){
+  return fetch(SB_URL + path, {
+    method: 'POST',
+    headers: { apikey: SB_KEY, authorization: 'Bearer ' + (token || SB_KEY),
+      'content-type': 'application/json', prefer: 'return=minimal' },
+    body: JSON.stringify(body),
+  });
+}
 
 function logCheck(score, total, deep){
   if (simMode) return;
+  const row = { exercise: EXKEY, score, reps: total, clean: deep,
+    source: /Telegram/i.test(navigator.userAgent) ? 'tg' : 'web' };
   try {
-    fetch(SB_URL + '/rest/v1/technique_checks', {
-      method: 'POST',
-      headers: { apikey: SB_KEY, authorization: 'Bearer ' + SB_KEY,
-        'content-type': 'application/json', prefer: 'return=minimal' },
-      body: JSON.stringify({ exercise: EXKEY, score, reps: total, clean: deep,
-        source: /Telegram/i.test(navigator.userAgent) ? 'tg' : 'web' }),
-    }).catch(()=>{});
+    // с токеном клиента user_id заполнится сам; протух — повтор анонимно
+    sbPost('/rest/v1/technique_checks', row, TCTX && TCTX.token)
+      .then(r => { if (!r.ok && TCTX) return sbPost('/rest/v1/technique_checks', row); })
+      .catch(()=>{});
   } catch (e) { /* метрика не должна ломать разбор */ }
+}
+
+// Событие в ленту тренера: «Иван проверил технику: присед — 84%».
+function notifyTrainer(score){
+  if (simMode || !TCTX || !TCTX.cid || !TCTX.tid || !TCTX.token) return;
+  try {
+    sbPost('/rest/v1/activity_events', {
+      trainer_id: TCTX.tid, client_id: TCTX.cid,
+      text: `проверил технику: ${EX.name.toLowerCase()} — ${score}%`,
+      kind: 'done',
+    }, TCTX.token).catch(()=>{});
+  } catch (e) {}
 }
 
 // ===== шаринг-карточка балла =====
