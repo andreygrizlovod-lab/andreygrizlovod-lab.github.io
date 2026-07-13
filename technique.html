@@ -23,9 +23,10 @@
   .mono{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}
 
   /* ===== liquid glass ===== */
-  /* blur поверх живого видео дорогой на старых iPhone — держим умеренным */
-  .glass{background:var(--glass);border:1px solid var(--glassline);
-    -webkit-backdrop-filter:blur(10px) saturate(130%);backdrop-filter:blur(10px) saturate(130%)}
+  /* blur поверх живого видео дорогой на старых iPhone (11 и ниже) —
+     лёгкий blur(6px) + плотнее подложка вместо насыщенного стекла */
+  .glass{background:rgba(14,14,18,.55);border:1px solid var(--glassline);
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 
   /* live: верхняя стеклянная панель */
   .top{position:fixed;top:12px;left:12px;right:12px;padding:10px 12px;display:flex;align-items:center;
@@ -138,7 +139,8 @@
   <div class="back" onclick="goHome()">✕</div>
   <span class="title" id="liveTitle">Техника</span>
   <span class="beta">БЕТА</span>
-  <div class="flip" onclick="flipCam()" title="Переключить камеру">⟲</div>
+  <div class="flip" id="voiceBtn" onclick="toggleVoice()" title="Голосовые подсказки">🔊</div>
+  <div class="flip" style="margin-left:0" onclick="flipCam()" title="Переключить камеру">⟲</div>
 </div>
 
 <div id="prompt" class="mute"></div>
@@ -155,8 +157,28 @@
   <p>ИИ смотрит на тебя через камеру и подсказывает по ходу. Всё считается на телефоне — видео никуда не уходит.</p>
   <div class="eyebrow" style="margin-top:18px">Выбери упражнение</div>
   <div id="exList"></div>
+  <div style="height:12px"></div>
+  <button class="btn btn-ghost" onclick="showTop('squat')">🏆 Топ недели</button>
   <div class="spacer"></div>
   <button class="btn btn-ghost" onclick="goBack()">Назад в приложение</button>
+</div>
+
+<!-- Топ недели -->
+<div class="screen" id="topScreen" style="display:none">
+  <h1>Топ недели</h1>
+  <p id="topSub">—</p>
+  <div class="fbcard" id="topSubmit" style="display:none">
+    <div style="font-weight:700;margin-bottom:10px">Занести мой балл <span id="topMyScore" class="mono" style="color:var(--lime)">—</span> в топ</div>
+    <input id="nickInput" maxlength="20" placeholder="Ник (2–20 символов)" style="width:100%;
+      background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:12px;
+      padding:13px 14px;color:var(--ink);font-family:Manrope;font-size:15px;outline:none">
+    <div style="height:10px"></div>
+    <button class="btn btn-lime" onclick="submitTop()">В топ 🏆</button>
+    <div id="topErr" style="color:var(--err);font-size:13px;margin-top:8px;display:none"></div>
+  </div>
+  <div id="topList" style="margin-top:12px"></div>
+  <div class="spacer" style="min-height:16px"></div>
+  <button class="btn btn-ghost" onclick="closeTop()">Назад</button>
 </div>
 
 <!-- Инструкция -->
@@ -203,6 +225,8 @@
   </div>
   <div class="spacer" style="min-height:20px"></div>
   <button class="btn btn-lime" id="shareBtn" onclick="shareCard()" style="display:none">Поделиться баллом</button>
+  <div style="height:10px"></div>
+  <button class="btn btn-ghost" id="topBtn" onclick="showTop()" style="display:none">🏆 В топ недели</button>
   <div style="height:10px"></div>
   <button class="btn btn-ghost" onclick="restart()">Ещё подход</button>
   <div style="height:10px"></div>
@@ -621,6 +645,7 @@ $('exList').querySelectorAll('.excard').forEach(el =>
 
 // ===== сессия =====
 window.startSession = async () => {
+  unlockVoice(); // жест пользователя — единственный шанс включить звук на iOS
   $('intro').style.display='none'; $('errorScreen').style.display='none';
   $('loading').style.display='flex';
   try {
@@ -690,9 +715,13 @@ function leanFromVertical(sh,hip){
 }
 const vis = (l) => l.visibility ?? 1;
 
-function loop(){
+// Нейросеть не чаще 30 кадров/сек: на iPhone 11 полный rAF-темп
+// перегревает GPU и всё подлагивает, а для счёта повторов 30 fps за глаза.
+let lastDetect = 0;
+function loop(now){
   if (!running) return;
-  if (video.readyState >= 2){
+  if (video.readyState >= 2 && now - lastDetect >= 33){
+    lastDetect = now;
     // смена width/height сбрасывает и реаллоцирует canvas — только при изменении
     if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight){
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
@@ -758,6 +787,7 @@ function step(f, t){
     if (a > EX.upThresh){
       reps.push({minAngle:curMin, maxAngle:curMax, extraFlag:curExtra, formBad:curFormBad, hangBefore:lastHang});
       setRepCounter(String(reps.length));
+      say(String(reps.length), true); // счёт повторов вслух
       phase='up'; curMin=180; curMax=0; curExtra=false; curFormBad=false;
       if ('vibrate' in navigator) navigator.vibrate(30);
     }
@@ -776,6 +806,60 @@ const promptEl = $('prompt');
 function setPrompt(text, cls){
   if (text === lastPrompt) return; lastPrompt = text;
   promptEl.textContent = text; promptEl.className = cls;
+  if (running) say(text); // телефон стоит в 2–3 метрах — экран не видно, голос видно
+}
+
+// ===== голосовые подсказки (личный ИИ-тренер вслух) =====
+let voiceOn = localStorage.getItem('podhod-voice') !== '0';
+let voiceRu = null, lastSpoken = '', lastSpokeAt = 0;
+
+function pickVoice(){
+  try {
+    const vs = speechSynthesis.getVoices();
+    voiceRu = vs.find(v => (v.lang || '').toLowerCase().startsWith('ru')) || null;
+  } catch (e) {}
+}
+if ('speechSynthesis' in window){
+  pickVoice();
+  speechSynthesis.onvoiceschanged = pickVoice;
+}
+
+function updateVoiceBtn(){ $('voiceBtn').textContent = voiceOn ? '🔊' : '🔇'; }
+updateVoiceBtn();
+
+window.toggleVoice = () => {
+  voiceOn = !voiceOn;
+  localStorage.setItem('podhod-voice', voiceOn ? '1' : '0');
+  if (!voiceOn){ try { speechSynthesis.cancel(); } catch (e) {} }
+  updateVoiceBtn();
+  say('Голос включён', true);
+};
+
+function say(text, force){
+  if (simMode || !voiceOn || !text || !('speechSynthesis' in window)) return;
+  const now = performance.now();
+  if (!force){
+    if (text === lastSpoken && now - lastSpokeAt < 2600) return;
+    if (now - lastSpokeAt < 900) return; // не тараторим поверх себя
+  }
+  lastSpoken = text; lastSpokeAt = now;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(text).toLowerCase());
+    u.lang = 'ru-RU'; if (voiceRu) u.voice = voiceRu;
+    u.rate = 1.12;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
+// iOS отдаёт голос только после жеста пользователя — «прогреваем» на «Начать»
+function unlockVoice(){
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+  } catch (e) {}
 }
 
 window.stopSession = () => {
@@ -877,9 +961,12 @@ function showResult(){
   $('resBar').style.width = score+'%';
   lastResult = { score, total, deep, formOkCount };
   $('shareBtn').style.display = total ? 'block' : 'none';
+  $('topBtn').style.display = total ? 'block' : 'none';
+  topSubmitted = false;
   if (total){
     logCheck(score, Math.min(total, 500), Math.min(deep, 500));
     notifyTrainer(score);
+    say(score >= 85 ? `Красавчик! ${score} ${points(score)}` : `Готово: ${score} ${points(score)}`, true);
   }
   $('result').style.display='flex';
 }
@@ -945,6 +1032,13 @@ function povtory(n){
   if (d10 === 1 && d100 !== 11) return 'ПОВТОР';
   if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'ПОВТОРА';
   return 'ПОВТОРОВ';
+}
+
+function points(n){
+  const d10 = n % 10, d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return 'балл';
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'балла';
+  return 'баллов';
 }
 
 // Карточка «табло + вызов»: кант-рамка, гигантская цифра, лайм-кнопка.
@@ -1044,6 +1138,77 @@ window.shareCard = async () => {
   shareUrl = URL.createObjectURL(blob);
   $('shareImg').src = shareUrl;
   $('shareOverlay').style.display = 'flex';
+};
+
+// ===== топ недели =====
+let NICK = localStorage.getItem('podhod-nick') || '';
+let topSubmitted = false; // этот результат уже занесён
+
+async function loadTop(ex){
+  const list = $('topList');
+  list.innerHTML = '<div class="fbcard" style="text-align:center;color:var(--muted)">Загружаю…</div>';
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/rpc/technique_top', {
+      method: 'POST',
+      headers: { apikey: SB_KEY, authorization: 'Bearer ' + SB_KEY,
+        'content-type': 'application/json' },
+      body: JSON.stringify({ ex, days: 7, top_n: 20 }),
+    });
+    if (!r.ok) throw 0;
+    const rows = await r.json();
+    if (!rows.length){
+      list.innerHTML = '<div class="fbcard" style="text-align:center;color:var(--muted)">Пока пусто. Стань первым 🏆</div>';
+      return;
+    }
+    list.innerHTML = '<div class="fbcard">' + rows.map((e, i) => `
+      <div class="fbrow" style="align-items:center${e.nick === NICK ? ';color:var(--lime)' : ''}">
+        <span class="mono" style="flex:0 0 34px;color:${i < 3 ? 'var(--lime)' : 'var(--muted)'}">${i + 1}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${
+          String(e.nick).replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]))}</span>
+        <span class="mono" style="font-weight:700">${e.score}%</span>
+      </div>`).join('') + '</div>';
+  } catch (e) {
+    list.innerHTML = '<div class="fbcard" style="text-align:center;color:var(--muted)">Топ временно недоступен.</div>';
+  }
+}
+
+let topEx = 'squat';
+window.showTop = (ex) => {
+  topEx = ex || EXKEY || 'squat';
+  const fresh = !ex && lastResult && lastResult.total > 0 && !topSubmitted;
+  $('topSub').textContent = (EXERCISES[topEx] ? EXERCISES[topEx].name : topEx) + ' · лучшие за 7 дней';
+  $('topSubmit').style.display = fresh ? 'block' : 'none';
+  if (fresh){
+    $('topMyScore').textContent = lastResult.score + '%';
+    $('nickInput').value = NICK;
+    $('topErr').style.display = 'none';
+  }
+  $('topScreen').style.display = 'flex';
+  loadTop(topEx);
+};
+window.closeTop = () => { $('topScreen').style.display = 'none'; };
+
+window.submitTop = async () => {
+  const nick = $('nickInput').value.trim();
+  const err = $('topErr');
+  if (nick.length < 2 || nick.length > 20){
+    err.textContent = 'Ник — от 2 до 20 символов.';
+    err.style.display = 'block';
+    return;
+  }
+  NICK = nick; localStorage.setItem('podhod-nick', nick);
+  try {
+    const r = await sbPost('/rest/v1/top_entries', {
+      exercise: topEx, score: lastResult.score, nick,
+    }, TCTX && TCTX.token);
+    if (!r.ok) throw 0;
+    topSubmitted = true;
+    $('topSubmit').style.display = 'none';
+    loadTop(topEx);
+  } catch (e) {
+    err.textContent = 'Не получилось отправить — проверь интернет.';
+    err.style.display = 'block';
+  }
 };
 
 window.tgShare = () => {
