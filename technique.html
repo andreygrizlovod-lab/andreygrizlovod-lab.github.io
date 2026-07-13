@@ -63,7 +63,17 @@
   /* полноэкранные состояния */
   .screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;
     padding:24px 18px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;
-    background:radial-gradient(500px 320px at 80% -60px, rgba(185,232,92,.10), transparent 65%), var(--bg)}
+    background:radial-gradient(500px 320px at 80% -60px, rgba(185,232,92,.10), transparent 65%), var(--bg);
+    animation:rise .26s cubic-bezier(.22,.9,.3,1)}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}}
+  @keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.16)}100%{transform:scale(1)}}
+  #reps .n.pop{animation:pop .22s ease-out}
+  #prompt{transition:opacity .15s, transform .15s}
+  #shareImg{animation:rise .3s ease-out}
+  @media (prefers-reduced-motion: reduce){
+    .screen,#shareImg{animation:none}
+    #reps .n.pop{animation:none}
+  }
   .screen h1{font-family:'Unbounded';font-size:22px;font-weight:800;margin-bottom:8px;letter-spacing:-.01em}
   .screen p{color:var(--muted);font-size:14.5px;line-height:1.55}
   .spacer{flex:1}
@@ -188,13 +198,27 @@
   <div id="resFeedback"></div>
   <div class="fbcard">
     <div class="metric" style="border:none"><span id="mDepthL">Глубина</span><span class="v" id="mDepth">—</span></div>
-    <div class="metric"><span>Чистых повторов</span><span class="v" id="mClean">—</span></div>
+    <div class="metric"><span id="mCleanL">Чистых повторов</span><span class="v" id="mClean">—</span></div>
     <div class="metric"><span id="mFormL">Форма</span><span class="v" id="mForm">—</span></div>
   </div>
   <div class="spacer" style="min-height:20px"></div>
-  <button class="btn btn-lime" onclick="restart()">Ещё подход</button>
+  <button class="btn btn-lime" id="shareBtn" onclick="shareCard()" style="display:none">Поделиться баллом</button>
+  <div style="height:10px"></div>
+  <button class="btn btn-ghost" onclick="restart()">Ещё подход</button>
   <div style="height:10px"></div>
   <button class="btn btn-ghost" onclick="goHome()">К упражнениям</button>
+</div>
+
+<!-- Шаринг-карточка: фолбэк, когда системный шаринг файлов недоступен -->
+<div class="screen" id="shareOverlay" style="display:none">
+  <h1>Карточка готова</h1>
+  <p>Зажми картинку и выбери «Сохранить», или отправь балл сразу в Telegram.</p>
+  <img id="shareImg" alt="Карточка балла техники"
+    style="width:100%;border-radius:20px;margin-top:14px;border:1px solid var(--border)">
+  <div class="spacer" style="min-height:16px"></div>
+  <button class="btn btn-lime" onclick="tgShare()">Отправить в Telegram</button>
+  <div style="height:10px"></div>
+  <button class="btn btn-ghost" onclick="closeShare()">Назад</button>
 </div>
 
 <script type="module">
@@ -221,7 +245,7 @@ const EXERCISES = {
       'Приседай. Подсказки появятся крупно на экране.',
     ],
     hint: 'Встань боком, чтобы было видно всё тело',
-    needAnkle: true,
+    req: ['sh','hip','knee','ankle'],
     downThresh: 130, upThresh: 155,
     joint(P, L) { return angle(P.hip, P.knee, P.ankle); },
     // формы: наклон корпуса от вертикали
@@ -237,6 +261,7 @@ const EXERCISES = {
     formLabel: 'Спина в норме',
     problems: { depth: 'Недосед', form: 'Спина скруглилась' },
     weights: { depth: .6, form: .4 },
+    card: { title: 'МОЙ ПРИСЕД', d: 'ГЛУБИНА', f: 'СПИНА' },
   },
   pushup: {
     name: 'Отжимания', icon: '💪',
@@ -247,7 +272,7 @@ const EXERCISES = {
       'Отжимайся. Следи за подсказками.',
     ],
     hint: 'Корпус целиком в кадре, вид сбоку',
-    needAnkle: true,
+    req: ['sh','el','wr','hip','ankle'],
     downThresh: 110, upThresh: 150,
     joint(P) { return angle(P.sh, P.el, P.wr); },
     // корпус — прямая линия: плечо-таз-лодыжка
@@ -263,6 +288,7 @@ const EXERCISES = {
     formLabel: 'Корпус прямой',
     problems: { depth: 'Неполная амплитуда', form: 'Таз провисает' },
     weights: { depth: .6, form: .4 },
+    card: { title: 'МОИ ОТЖИМАНИЯ', d: 'АМПЛИТУДА', f: 'КОРПУС' },
   },
   pullup: {
     name: 'Подтягивания', icon: '🧗',
@@ -273,7 +299,7 @@ const EXERCISES = {
       'Подтягивайся. ИИ смотрит высоту и вис внизу.',
     ],
     hint: 'Ты и турник — целиком в кадре, вид сбоку',
-    needAnkle: false,
+    req: ['sh','el','wr'],
     downThresh: 110, upThresh: 150,
     joint(P) { return angle(P.sh, P.el, P.wr); },
     form(P) { return true; }, // оцениваем по повтору (вис до старта)
@@ -288,6 +314,7 @@ const EXERCISES = {
     formLabel: 'Полный вис внизу',
     problems: { depth: 'Не дотянул подбородок', form: 'Недоразгибаешь руки внизу' },
     weights: { depth: .6, form: .4 },
+    card: { title: 'МОИ ПОДТЯГИВАНИЯ', d: 'ВЫСОТА', f: 'ВИС' },
   },
   bench: {
     name: 'Жим лёжа', icon: '🔩',
@@ -298,7 +325,7 @@ const EXERCISES = {
       'Жми. ИИ считает повторы и смотрит амплитуду.',
     ],
     hint: 'Камера сбоку от скамьи, виден локоть и кисть',
-    needAnkle: false,
+    req: ['sh','el','wr'],
     downThresh: 110, upThresh: 150,
     joint(P) { return angle(P.sh, P.el, P.wr); },
     // дожим: локоть почти выпрямляется вверху
@@ -314,14 +341,153 @@ const EXERCISES = {
     formLabel: 'Дожим наверху',
     problems: { depth: 'Не доводишь к груди', form: 'Не дожимаешь вверху' },
     weights: { depth: .7, form: .3 },
+    card: { title: 'МОЙ ЖИМ ЛЁЖА', d: 'АМПЛИТУДА', f: 'ДОЖИМ' },
+  },
+  lunge: {
+    name: 'Выпады', icon: '🦵',
+    desc: 'глубина и корпус · вид сбоку',
+    steps: [
+      'Поставь телефон на опору, экраном к себе.',
+      'Встань БОКОМ в 2–3 метрах — видно от головы до стоп.',
+      'Делай выпады на месте. Следи за подсказками.',
+    ],
+    hint: 'Вид сбоку, всё тело в кадре',
+    req: ['sh','hip','knee','ankle'],
+    downThresh: 110, upThresh: 155,
+    joint(P) { return angle(P.hip, P.knee, P.ankle); },
+    // корпус держим вертикально, без заваливания вперёд
+    form(P) { return leanFromVertical(P.sh, P.hip) <= 30; },
+    depthOk(r) { return r.minAngle <= 100; },
+    trackExtra() { return false; },
+    live(phase, extra, formOk) {
+      if (!formOk) return ['КОРПУС ВЕРТИКАЛЬНО', 'bad'];
+      if (phase === 'down') return ['НИЖЕ, КОЛЕНО К ПОЛУ', 'mute'];
+      return ['ШАГ И ВНИЗ', 'mute'];
+    },
+    depthLabel: 'Глубина (колено ≤ 100°)',
+    formLabel: 'Корпус вертикально',
+    problems: { depth: 'Неглубокий выпад', form: 'Заваливаешься вперёд' },
+    weights: { depth: .6, form: .4 },
+    card: { title: 'МОИ ВЫПАДЫ', d: 'ГЛУБИНА', f: 'КОРПУС' },
+  },
+  deadlift: {
+    name: 'Становая тяга', icon: '⚓',
+    desc: 'амплитуда и локаут · вид сбоку',
+    steps: [
+      'Телефон на опору сбоку от штанги, в 2–3 метрах.',
+      'Встань БОКОМ — видно плечо, таз и колено.',
+      'Тяни. ИИ смотрит наклон и дожим наверху.',
+    ],
+    hint: 'Вид сбоку: плечо, таз и колено в кадре',
+    req: ['sh','hip','knee'],
+    downThresh: 120, upThresh: 155,
+    joint(P) { return angle(P.sh, P.hip, P.knee); },
+    form(P) { return true; }, // локаут оцениваем по повтору
+    depthOk(r) { return r.minAngle <= 105; },
+    trackExtra() { return false; },
+    // локаут = полное разгибание в стойке перед следующим съёмом
+    formPerRep(r) { return (r.hangBefore ?? 180) >= 168; },
+    live(phase) {
+      if (phase === 'down') return ['ТЯНИ ВВЕРХ', 'mute'];
+      return ['НАКЛОН И СЪЁМ', 'mute'];
+    },
+    depthLabel: 'Наклон (таз ≤ 105°)',
+    formLabel: 'Локаут наверху',
+    problems: { depth: 'Неполная амплитуда', form: 'Не дожат локаут' },
+    weights: { depth: .5, form: .5 },
+    card: { title: 'МОЯ ТЯГА', d: 'АМПЛИТУДА', f: 'ЛОКАУТ' },
+  },
+  ohp: {
+    name: 'Жим стоя', icon: '🙌',
+    desc: 'локаут и честные ноги · вид сбоку',
+    steps: [
+      'Телефон на опору, экраном к себе, в 2–3 метрах.',
+      'Встань БОКОМ — в кадре всё тело, от кистей вверху до стоп.',
+      'Жми над головой. ИИ ловит недожим и помощь ногами.',
+    ],
+    hint: 'Вид сбоку, руки вверху должны помещаться в кадр',
+    req: ['sh','el','wr','hip','knee','ankle'],
+    downThresh: 110, upThresh: 150,
+    joint(P) { return angle(P.sh, P.el, P.wr); },
+    form(P) { return true; }, // читинг ногами ловим через trackExtra
+    depthOk(r) { return r.maxAngle >= 165; },
+    // согнул колени во время жима = швунг, а не строгий жим
+    trackExtra(P) { return angle(P.hip, P.knee, P.ankle) < 150; },
+    formPerRep(r) { return !r.extraFlag; },
+    live(phase, extra) {
+      if (extra) return ['БЕЗ НОГ', 'bad'];
+      if (phase === 'down') return ['ЖМИ ДО ЛОКАУТА', 'mute'];
+      return ['ОПУСКАЙ К ПЛЕЧАМ', 'mute'];
+    },
+    depthLabel: 'Локаут (локоть ≥ 165°)',
+    formLabel: 'Без помощи ног',
+    problems: { depth: 'Не дожимаешь наверху', form: 'Помогаешь ногами' },
+    weights: { depth: .6, form: .4 },
+    card: { title: 'МОЙ ЖИМ СТОЯ', d: 'ЛОКАУТ', f: 'БЕЗ НОГ' },
+  },
+  curl: {
+    name: 'Сгибания на бицепс', icon: '🦾',
+    desc: 'амплитуда и честный локоть · вид сбоку',
+    steps: [
+      'Телефон на опору, экраном к себе, в 1,5–2 метрах.',
+      'Встань БОКОМ — видно плечо, локоть и кисть.',
+      'Сгибай руку. ИИ ловит недомах и раскачку.',
+    ],
+    hint: 'Вид сбоку: плечо, локоть и кисть в кадре',
+    req: ['sh','el','wr'],
+    downThresh: 90, upThresh: 150,
+    joint(P) { return angle(P.sh, P.el, P.wr); },
+    // локоть на месте: плечо (sh→el) висит вертикально, без маха
+    form(P) {
+      const dx = P.el.x - P.sh.x, dy = P.el.y - P.sh.y;
+      return Math.abs(Math.atan2(dx, dy)) * 180 / Math.PI <= 25;
+    },
+    depthOk(r) { return r.minAngle <= 55; },
+    trackExtra() { return false; },
+    live(phase, extra, formOk) {
+      if (!formOk) return ['ЛОКОТЬ НА МЕСТЕ', 'bad'];
+      if (phase === 'down') return ['ДОЖМИ ВВЕРХ', 'mute'];
+      return ['СГИБАЙ', 'mute'];
+    },
+    depthLabel: 'Амплитуда (локоть ≤ 55°)',
+    formLabel: 'Локоть на месте',
+    problems: { depth: 'Не досгибаешь', form: 'Раскачка плечом' },
+    weights: { depth: .6, form: .4 },
+    card: { title: 'МОИ СГИБАНИЯ', d: 'АМПЛИТУДА', f: 'ЛОКОТЬ' },
+  },
+  plank: {
+    name: 'Планка', icon: '📏',
+    desc: 'ровный корпус на время · вид сбоку',
+    hold: true,
+    steps: [
+      'Телефон на пол или низкую опору, экраном к себе.',
+      'Встань в планку БОКОМ к камере, целиком в кадре.',
+      'Держи. ИИ считает секунды и следит за линией корпуса.',
+    ],
+    hint: 'Вид сбоку, корпус целиком в кадре',
+    req: ['sh','hip','ankle'],
+    joint(P) { return angle(P.sh, P.hip, P.ankle); },
+    // прямая линия: без провисания таза и без «домика»
+    form(P) { return angle(P.sh, P.hip, P.ankle) >= 160; },
+    trackExtra() { return false; },
+    live(phase, extra, formOk) {
+      return formOk ? ['ДЕРЖИ', 'good'] : ['ВЫРОВНЯЙ КОРПУС', 'bad'];
+    },
+    depthLabel: 'Время в планке',
+    formLabel: 'Время ровно',
+    problems: { form: 'Корпус гулял' },
+    card: { title: 'МОЯ ПЛАНКА' },
   },
 };
 
-let EX = null; // активный конфиг
+let EX = null;    // активный конфиг
+let EXKEY = null; // его ключ (для облака и карточки)
 let reps = [], phase = 'up';
 let curMin = 180, curMax = 0, curExtra = false, curFormBad = false;
 // максимум ключевого угла в фазе «наверху» — для подтягиваний это полный вис
 let hangMax = 0, lastHang = 180;
+// режим удержания (планка): накопленное время всего и с ровной формой, мс
+let holdTotal = 0, holdGood = 0, holdLast = null;
 let lastPrompt = '';
 
 // ===== навигация =====
@@ -371,6 +537,47 @@ function sceneFor(key){
       <path d="M244,58 L244,96"/>
       <path d="M244,96 L236,112 L240,127"/>
     </g>`,
+    lunge: `<g class="fig">
+      <circle cx="248" cy="52" r="8"/>
+      <path d="M248,60 L248,96"/>
+      <path d="M248,96 L228,112 L232,128"/>
+      <path d="M248,96 L268,104 L272,128"/>
+      <path d="M248,68 L258,82"/>
+    </g>`,
+    deadlift: `<g class="gear">
+      <path d="M226,120 L282,120"/>
+      <circle cx="226" cy="120" r="9"/>
+      <circle cx="282" cy="120" r="9"/>
+    </g>
+    <g class="fig">
+      <circle cx="238" cy="62" r="8"/>
+      <path d="M244,68 L262,86 L258,128"/>
+      <path d="M246,72 L240,110"/>
+    </g>`,
+    ohp: `<g class="gear">
+      <path d="M234,34 L274,34"/>
+      <circle cx="234" cy="34" r="5"/>
+      <circle cx="274" cy="34" r="5"/>
+    </g>
+    <g class="fig">
+      <circle cx="254" cy="58" r="8"/>
+      <path d="M254,66 L254,102"/>
+      <path d="M254,72 L242,52 L240,38 M254,72 L266,52 L268,38"/>
+      <path d="M254,102 L246,128 M254,102 L262,128"/>
+    </g>`,
+    curl: `<g class="fig">
+      <circle cx="250" cy="50" r="8"/>
+      <path d="M250,58 L250,100"/>
+      <path d="M250,68 L252,88 L266,76"/>
+      <path d="M250,100 L244,128 M250,100 L256,128"/>
+    </g>
+    <g class="gear"><circle cx="268" cy="72" r="5"/></g>`,
+    plank: `<g class="fig">
+      <circle cx="212" cy="102" r="7"/>
+      <path d="M220,106 L292,114"/>
+      <path d="M224,108 L222,128"/>
+      <path d="M292,114 L298,128"/>
+    </g>`,
   };
   const label = key === 'bench' ? 'СБОКУ ОТ СКАМЬИ' : 'ВИД СБОКУ';
   return `<svg viewBox="0 0 340 152" xmlns="http://www.w3.org/2000/svg">
@@ -390,7 +597,7 @@ function sceneFor(key){
 }
 
 function pickExercise(key){
-  EX = EXERCISES[key];
+  EX = EXERCISES[key]; EXKEY = key;
   $('picker').style.display='none';
   $('introTitle').textContent = EX.name;
   $('introSub').textContent = 'ИИ проверит: ' + EX.desc + '. Видео не покидает телефон.';
@@ -464,7 +671,9 @@ function stopCamera(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); str
 function resetAnalysis(){
   reps=[]; phase='up'; curMin=180; curMax=0; curExtra=false; curFormBad=false;
   hangMax=0; lastHang=180;
+  holdTotal=0; holdGood=0; holdLast=null;
   $('reps').querySelector('.n').textContent='0';
+  $('reps').querySelector('.l').textContent = EX && EX.hold ? 'СЕКУНДЫ' : 'ПОВТОРЫ';
   setPrompt('','mute');
 }
 
@@ -509,15 +718,31 @@ function analyze(lm){
     sh: lm[L?IDX.shL:IDX.shR], el: lm[L?IDX.elL:IDX.elR], wr: lm[L?IDX.wrL:IDX.wrR],
     hip: lm[L?IDX.hipL:IDX.hipR], knee: lm[L?IDX.knL:IDX.knR], ankle: lm[L?IDX.anL:IDX.anR],
   };
-  const needed = EX.needAnkle ? [P.hip,P.knee,P.ankle] : [P.sh,P.el,P.wr];
-  if (needed.some(p => vis(p) < 0.5)){ setPrompt('Встань как в инструкции','bad'); return; }
+  const needed = (EX.req || []).map(k => P[k]);
+  if (needed.some(p => vis(p) < 0.5)){
+    setPrompt('Встань как в инструкции','bad');
+    holdLast = null; // пауза удержания, пока человек не в кадре
+    return;
+  }
+  step({ a: EX.joint(P), formOk: EX.form(P), extra: EX.trackExtra(P) },
+       performance.now());
+}
 
-  const a = EX.joint(P);
-  const formOk = EX.form(P);
-  const extra = EX.trackExtra(P);
-
+// Шаг стейт-машины. Отделён от MediaPipe, чтобы гонять синтетические кадры.
+function step(f, t){
+  const { a, formOk, extra } = f;
   const [txt, cls] = EX.live(phase, extra || curExtra, formOk);
   setPrompt(txt, cls);
+
+  if (EX.hold){
+    if (holdLast != null){
+      const dt = Math.min(t - holdLast, 200); // разрыв кадров не засчитываем
+      if (dt > 0){ holdTotal += dt; if (formOk) holdGood += dt; }
+    }
+    holdLast = t;
+    setRepCounter(String(Math.floor(holdTotal / 1000)));
+    return;
+  }
 
   if (phase === 'up'){
     hangMax = Math.max(hangMax, a);
@@ -532,11 +757,19 @@ function analyze(lm){
     if (!formOk) curFormBad = true;
     if (a > EX.upThresh){
       reps.push({minAngle:curMin, maxAngle:curMax, extraFlag:curExtra, formBad:curFormBad, hangBefore:lastHang});
-      $('reps').querySelector('.n').textContent = String(reps.length);
+      setRepCounter(String(reps.length));
       phase='up'; curMin=180; curMax=0; curExtra=false; curFormBad=false;
       if ('vibrate' in navigator) navigator.vibrate(30);
     }
   }
+}
+
+// счётчик с «пульсом» на каждое изменение
+function setRepCounter(v){
+  const n = $('reps').querySelector('.n');
+  if (n.textContent === v) return;
+  n.textContent = v;
+  n.classList.remove('pop'); void n.offsetWidth; n.classList.add('pop');
 }
 
 const promptEl = $('prompt');
@@ -551,49 +784,277 @@ window.stopSession = () => {
   showResult();
 };
 
+// цифра «набегает» — как CountUpMono в приложении; уважает reduced motion
+function countUp(el, to){
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || to === 0){
+    el.textContent = String(to); return;
+  }
+  const t0 = performance.now(), dur = 700;
+  (function tick(t){
+    const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = String(Math.round(to * e));
+    if (k < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+
 function showResult(){
-  const total = reps.length;
-  let deep=0, formOkCount=0, sumMin=0;
-  const problems=[];
-  reps.forEach((r,i)=>{
-    const dOk = EX.depthOk(r);
-    const fOk = EX.formPerRep ? EX.formPerRep(r) && !r.formBad : !r.formBad;
-    if (dOk) deep++; if (fOk) formOkCount++;
-    sumMin += r.minAngle;
-    if (!dOk || !fOk) problems.push({n:i+1, depth:!dOk, form:!fOk});
-  });
-  const score = total
-    ? Math.round(((deep/total)*EX.weights.depth + (formOkCount/total)*EX.weights.form)*100)
-    : 0;
-
-  $('resSub').textContent = `${EX.name} · ${total} повторов`;
-  $('resScore').textContent = score;
-  $('resBar').style.width = score+'%';
-  $('mDepthL').textContent = EX.depthLabel;
-  $('mFormL').textContent = EX.formLabel;
-  $('mDepth').textContent = total ? Math.round(sumMin/total)+'°' : '—';
-  $('mClean').textContent = deep+' / '+total;
-  $('mForm').textContent = formOkCount+' / '+total;
-
   const fb=$('resFeedback'); fb.innerHTML='';
   const card=document.createElement('div'); card.className='fbcard';
-  if (!total){
-    card.innerHTML='<div class="fbrow warn"><div class="dot"></div><div>Повторы не насчитались. Проверь ракурс по инструкции и попробуй ещё раз.</div></div>';
+  let score, total, deep, formOkCount;
+
+  if (EX.hold){
+    // планка: балл = доля времени с ровным корпусом (минимум 10 секунд)
+    const sec = Math.round(holdTotal/1000);
+    const goodSec = Math.round(holdGood/1000);
+    const pct = holdTotal > 0 ? Math.round(100*holdGood/holdTotal) : 0;
+    total = sec; deep = goodSec; formOkCount = goodSec;
+    score = sec >= 10 ? pct : 0;
+
+    $('resSub').textContent = `${EX.name} · ${sec} сек`;
+    $('mDepthL').textContent = EX.depthLabel;
+    $('mCleanL').textContent = 'Из них ровно';
+    $('mFormL').textContent = EX.formLabel;
+    $('mDepth').textContent = sec + ' с';
+    $('mClean').textContent = goodSec + ' с';
+    $('mForm').textContent = pct + '%';
+
+    if (sec < 10){
+      card.innerHTML='<div class="fbrow warn"><div class="dot"></div><div>Слишком коротко для оценки — подержи планку хотя бы 10 секунд.</div></div>';
+      total = 0; // балл не считаем и не логируем
+    } else {
+      const head = score>=85 ? 'Железная планка — так держать.'
+                 : score>=65 ? 'В целом ровно, но корпус гулял.'
+                 : 'Корпус гулял больше половины времени — детали ниже.';
+      let rows = `<div class="fbrow ok"><div class="dot"></div><div>${head}</div></div>`;
+      if (pct < 100)
+        rows += `<div class="fbrow warn"><div class="dot"></div><div>${EX.problems.form}: ${sec-goodSec} сек из ${sec}. Держи таз в одной линии с плечами и стопами.</div></div>`;
+      else
+        rows += '<div class="fbrow ok"><div class="dot"></div><div>Ни секунды провисания. Красавчик.</div></div>';
+      card.innerHTML = rows;
+    }
   } else {
-    const head = score>=85 ? 'Отличная техника — так держать.'
-               : score>=65 ? 'В целом хорошо, есть что подтянуть.'
-               : 'Есть над чем поработать — детали ниже.';
-    let rows = `<div class="fbrow ok"><div class="dot"></div><div>${head}</div></div>`;
-    const dArr = problems.filter(p=>p.depth).map(p=>p.n);
-    const fArr = problems.filter(p=>p.form).map(p=>p.n);
-    if (dArr.length) rows += `<div class="fbrow warn"><div class="dot"></div><div>${EX.problems.depth}: повторы ${dArr.join(', ')}.</div></div>`;
-    if (fArr.length) rows += `<div class="fbrow warn"><div class="dot"></div><div>${EX.problems.form}: повторы ${fArr.join(', ')}.</div></div>`;
-    if (!dArr.length && !fArr.length) rows += `<div class="fbrow ok"><div class="dot"></div><div>Все повторы чистые. Красавчик.</div></div>`;
-    card.innerHTML = rows;
+    total = reps.length;
+    deep=0; formOkCount=0;
+    let sumMin=0;
+    const problems=[];
+    reps.forEach((r,i)=>{
+      const dOk = EX.depthOk(r);
+      const fOk = EX.formPerRep ? EX.formPerRep(r) && !r.formBad : !r.formBad;
+      if (dOk) deep++; if (fOk) formOkCount++;
+      sumMin += r.minAngle;
+      if (!dOk || !fOk) problems.push({n:i+1, depth:!dOk, form:!fOk});
+    });
+    score = total
+      ? Math.round(((deep/total)*EX.weights.depth + (formOkCount/total)*EX.weights.form)*100)
+      : 0;
+
+    $('resSub').textContent = `${EX.name} · ${total} ${povtory(total).toLowerCase()}`;
+    $('mDepthL').textContent = EX.depthLabel;
+    $('mCleanL').textContent = 'Чистых повторов';
+    $('mFormL').textContent = EX.formLabel;
+    $('mDepth').textContent = total ? Math.round(sumMin/total)+'°' : '—';
+    $('mClean').textContent = deep+' / '+total;
+    $('mForm').textContent = formOkCount+' / '+total;
+
+    if (!total){
+      card.innerHTML='<div class="fbrow warn"><div class="dot"></div><div>Повторы не насчитались. Проверь ракурс по инструкции и попробуй ещё раз.</div></div>';
+    } else {
+      const head = score>=85 ? 'Отличная техника — так держать.'
+                 : score>=65 ? 'В целом хорошо, есть что подтянуть.'
+                 : 'Есть над чем поработать — детали ниже.';
+      let rows = `<div class="fbrow ok"><div class="dot"></div><div>${head}</div></div>`;
+      const dArr = problems.filter(p=>p.depth).map(p=>p.n);
+      const fArr = problems.filter(p=>p.form).map(p=>p.n);
+      if (dArr.length) rows += `<div class="fbrow warn"><div class="dot"></div><div>${EX.problems.depth}: повторы ${dArr.join(', ')}.</div></div>`;
+      if (fArr.length) rows += `<div class="fbrow warn"><div class="dot"></div><div>${EX.problems.form}: повторы ${fArr.join(', ')}.</div></div>`;
+      if (!dArr.length && !fArr.length) rows += `<div class="fbrow ok"><div class="dot"></div><div>Все повторы чистые. Красавчик.</div></div>`;
+      card.innerHTML = rows;
+    }
   }
+
   fb.appendChild(card);
+  countUp($('resScore'), score);
+  $('resBar').style.width = score+'%';
+  lastResult = { score, total, deep, formOkCount };
+  $('shareBtn').style.display = total ? 'block' : 'none';
+  if (total) logCheck(score, Math.min(total, 500), Math.min(deep, 500));
   $('result').style.display='flex';
 }
+
+// ===== облако: счётчик проверок (только цифры, без видео и личных данных) =====
+const SB_URL = 'https://aoxqbdcryxhtxguxjtzg.supabase.co';
+const SB_KEY = 'sb_publishable_C-EUhcuAW0A53KmvwfMBkA_BbKzwnd6';
+let lastResult = null;
+
+let simMode = false; // симуляции не считаются в метрику
+
+function logCheck(score, total, deep){
+  if (simMode) return;
+  try {
+    fetch(SB_URL + '/rest/v1/technique_checks', {
+      method: 'POST',
+      headers: { apikey: SB_KEY, authorization: 'Bearer ' + SB_KEY,
+        'content-type': 'application/json', prefer: 'return=minimal' },
+      body: JSON.stringify({ exercise: EXKEY, score, reps: total, clean: deep,
+        source: /Telegram/i.test(navigator.userAgent) ? 'tg' : 'web' }),
+    }).catch(()=>{});
+  } catch (e) { /* метрика не должна ломать разбор */ }
+}
+
+// ===== шаринг-карточка балла =====
+let shareUrl = null;
+
+function fitFont(x, text, weight, family, size, maxWidth){
+  for (; size > 20; size -= 4){
+    x.font = `${weight} ${size}px ${family}`;
+    if (x.measureText(text).width <= maxWidth) break;
+  }
+  return size;
+}
+
+function povtory(n){
+  const d10 = n % 10, d100 = n % 100;
+  if (d10 === 1 && d100 !== 11) return 'ПОВТОР';
+  if (d10 >= 2 && d10 <= 4 && (d100 < 12 || d100 > 14)) return 'ПОВТОРА';
+  return 'ПОВТОРОВ';
+}
+
+// Карточка «табло + вызов»: кант-рамка, гигантская цифра, лайм-кнопка.
+async function renderCard(){
+  const { score, total, deep, formOkCount } = lastResult;
+  await Promise.all([
+    '800 40px Unbounded', '800 88px Unbounded', '800 52px Unbounded',
+    '800 520px "JetBrains Mono"', '700 64px "JetBrains Mono"',
+    '500 34px "JetBrains Mono"', '800 42px "JetBrains Mono"',
+    '500 26px "JetBrains Mono"',
+  ].map(f => document.fonts.load(f)));
+
+  const W = 1080, H = 1350;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+
+  // фон + мягкое лайм-свечение
+  x.fillStyle = '#0B0B0F'; x.fillRect(0, 0, W, H);
+  const g = x.createRadialGradient(918, -140, 0, 918, -140, 900);
+  g.addColorStop(0, 'rgba(185,232,92,.12)'); g.addColorStop(1, 'rgba(185,232,92,0)');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+
+  // кант-рамка
+  x.strokeStyle = '#232329'; x.lineWidth = 2;
+  x.beginPath(); x.roundRect(36, 36, W - 72, H - 72, 44); x.stroke();
+
+  const L = 120, R = W - 120, maxW = R - L;
+  x.textBaseline = 'alphabetic';
+
+  // верхняя строка: ворд-марк + подпись
+  x.font = '800 40px Unbounded'; x.fillStyle = '#F2F3F0';
+  x.fillText('ПОДХОД', L, 148);
+  x.fillStyle = '#B9E85C'; x.fillText('.', L + x.measureText('ПОДХОД').width, 148);
+  x.font = '500 26px "JetBrains Mono"'; x.fillStyle = '#9A9AA4';
+  try { x.letterSpacing = '4px'; } catch (e) {}
+  x.fillText('ИИ-СУДЬЯ · ТЕХНИКА', R - x.measureText('ИИ-СУДЬЯ · ТЕХНИКА').width, 148);
+  try { x.letterSpacing = '0px'; } catch (e) {}
+
+  // гигантский балл
+  x.font = '700 64px "JetBrains Mono"';
+  const ofW = x.measureText('/100').width;
+  const scSize = fitFont(x, String(score), 800, '"JetBrains Mono"', 520, maxW - ofW - 22);
+  x.font = `800 ${scSize}px "JetBrains Mono"`; x.fillStyle = '#B9E85C';
+  let cy = 148 + 90 + scSize * 0.74;
+  x.fillText(String(score), L - 14, cy);
+  const scoreW = x.measureText(String(score)).width;
+  x.font = '700 64px "JetBrains Mono"'; x.fillStyle = '#4A4A52';
+  x.fillText('/100', L - 14 + scoreW + 22, cy);
+
+  // упражнение
+  const exName = EX.name.toUpperCase();
+  const exSize = fitFont(x, exName, 800, 'Unbounded', 88, maxW);
+  cy += 46 + exSize * 0.82;
+  x.font = `800 ${exSize}px Unbounded`; x.fillStyle = '#F2F3F0';
+  x.fillText(exName, L, cy);
+
+  // строка метрик
+  cy += 62;
+  const stats = EX.hold
+    ? `${total} СЕК · РОВНО ${total ? Math.round(100 * deep / total) : 0}%`
+    : `${total} ${povtory(total)} · ${EX.card.d} ${deep}/${total} · ${EX.card.f} ${formOkCount}/${total}`;
+  const sSize = fitFont(x, stats, 500, '"JetBrains Mono"', 34, maxW);
+  x.font = `500 ${sSize}px "JetBrains Mono"`; x.fillStyle = '#9A9AA4';
+  x.fillText(stats, L, cy);
+
+  // полоса балла
+  cy += 42;
+  x.fillStyle = '#1D1D23';
+  x.beginPath(); x.roundRect(L, cy, maxW, 18, 99); x.fill();
+  x.fillStyle = '#B9E85C';
+  x.beginPath(); x.roundRect(L, cy, Math.max(18, maxW * score / 100), 18, 99); x.fill();
+
+  // кнопка-вызов
+  const ctaH = 168, ctaY = H - 36 - 64 - ctaH;
+  x.fillStyle = '#B9E85C';
+  x.beginPath(); x.roundRect(L, ctaY, maxW, ctaH, 36); x.fill();
+  x.fillStyle = '#0B0B0F';
+  x.font = '800 42px "JetBrains Mono"';
+  const siteW = x.measureText('podhod.site').width;
+  x.fillText('podhod.site', R - 52 - siteW, ctaY + ctaH / 2 + 15);
+  const qSize = fitFont(x, 'А у тебя сколько?', 800, 'Unbounded', 52, maxW - siteW - 52 * 2 - 40);
+  x.font = `800 ${qSize}px Unbounded`;
+  x.fillText('А у тебя сколько?', L + 52, ctaY + ctaH / 2 + qSize * 0.36);
+
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+
+window.shareCard = async () => {
+  if (!lastResult) return;
+  const blob = await renderCard();
+  const file = new File([blob], 'podhod-tekhnika.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })){
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  if (shareUrl) URL.revokeObjectURL(shareUrl);
+  shareUrl = URL.createObjectURL(blob);
+  $('shareImg').src = shareUrl;
+  $('shareOverlay').style.display = 'flex';
+};
+
+window.tgShare = () => {
+  const t = `ИИ дал мне ${lastResult.score}% за технику (${EX.name.toLowerCase()}). А у тебя сколько? Проверь за 30 секунд:`;
+  window.open('https://t.me/share/url?url=' + encodeURIComponent('https://podhod.site/technique.html')
+    + '&text=' + encodeURIComponent(t), '_blank');
+};
+window.closeShare = () => { $('shareOverlay').style.display = 'none'; };
+
+// ===== прямой вход: technique.html?ex=squat (QR, сторис, «Чистый присед») =====
+{
+  const exParam = new URLSearchParams(location.search).get('ex');
+  if (exParam && EXERCISES[exParam]) pickExercise(exParam);
+}
+
+// симуляция стейт-машины синтетическими кадрами — проверка счёта без камеры:
+// __sim('squat', [{a:170}, {a:100,formOk:false}, ...], шаг кадра 100 мс)
+window.__sim = (key, frames) => {
+  simMode = true;
+  EX = EXERCISES[key]; EXKEY = key;
+  resetAnalysis();
+  frames.forEach((f, i) => step({ formOk: true, extra: false, a: 180, ...f }, i * 100));
+  showResult();
+  $('result').style.display = 'none';
+  simMode = false;
+  return lastResult;
+};
+
+// отладочный превью карточки (консоль): __cardPreview('squat', 84, 8, 7, 8)
+window.__cardPreview = async (key = 'squat', score = 84, total = 8, deep = 7, form = 8) => {
+  EX = EXERCISES[key]; EXKEY = key;
+  lastResult = { score, total, deep, formOkCount: form };
+  const blob = await renderCard();
+  if (shareUrl) URL.revokeObjectURL(shareUrl);
+  shareUrl = URL.createObjectURL(blob);
+  $('shareImg').src = shareUrl;
+  $('shareOverlay').style.display = 'flex';
+  return blob.size;
+};
 
 window.addEventListener('pagehide', stopCamera);
 </script>
