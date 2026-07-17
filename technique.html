@@ -6,7 +6,7 @@
 <title>Подход · Техника (бета)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Unbounded:wght@600;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Unbounded:wght@600;800&family=JetBrains+Mono:wght@500;700&family=Michroma&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#0B0B0F; --surface:#15151A; --surfaceHi:#1C1C22; --border:#2A2A31;
@@ -1019,6 +1019,21 @@ function notifyTrainer(score){
 // ===== шаринг-карточка балла =====
 let shareUrl = null;
 
+// Знак-горы podhod: две вершины (геометрия бренд-кита, bbox 324×138 при s=1).
+function drawMark(x, ox, oy, s, color){
+  x.fillStyle = color;
+  const tri = (pts) => {
+    x.beginPath();
+    x.moveTo(ox + pts[0][0]*s, oy + pts[0][1]*s);
+    x.lineTo(ox + pts[1][0]*s, oy + pts[1][1]*s);
+    x.lineTo(ox + pts[2][0]*s, oy + pts[2][1]*s);
+    x.closePath();
+    x.fill();
+  };
+  tri([[87,42],[162,138],[0,138]]);   // малая вершина
+  tri([[204,0],[324,138],[168,138]]); // большая вершина
+}
+
 function fitFont(x, text, weight, family, size, maxWidth){
   for (; size > 20; size -= 4){
     x.font = `${weight} ${size}px ${family}`;
@@ -1045,7 +1060,7 @@ function points(n){
 async function renderCard(){
   const { score, total, deep, formOkCount } = lastResult;
   await Promise.all([
-    '800 40px Unbounded', '800 88px Unbounded', '800 52px Unbounded',
+    '36px Michroma', '800 88px Unbounded', '800 52px Unbounded',
     '800 520px "JetBrains Mono"', '700 64px "JetBrains Mono"',
     '500 34px "JetBrains Mono"', '800 42px "JetBrains Mono"',
     '500 26px "JetBrains Mono"',
@@ -1068,10 +1083,10 @@ async function renderCard(){
   const L = 120, R = W - 120, maxW = R - L;
   x.textBaseline = 'alphabetic';
 
-  // верхняя строка: ворд-марк + подпись
-  x.font = '800 40px Unbounded'; x.fillStyle = '#F2F3F0';
-  x.fillText('ПОДХОД', L, 148);
-  x.fillStyle = '#B9E85C'; x.fillText('.', L + x.measureText('ПОДХОД').width, 148);
+  // верхняя строка: знак-горы + «podhod» (Michroma, бренд-кит) + подпись
+  drawMark(x, L, 96, 0.36, '#F2F3F0');
+  x.font = '36px Michroma'; x.fillStyle = '#F2F3F0';
+  x.fillText('podhod', L + 136, 148);
   x.font = '500 26px "JetBrains Mono"'; x.fillStyle = '#9A9AA4';
   try { x.letterSpacing = '4px'; } catch (e) {}
   x.fillText('ИИ-СУДЬЯ · ТЕХНИКА', R - x.measureText('ИИ-СУДЬЯ · ТЕХНИКА').width, 148);
