@@ -489,8 +489,17 @@ const EXERCISES = {
       'Держи. ИИ считает секунды и следит за линией корпуса.',
     ],
     hint: 'Вид сбоку, корпус целиком в кадре',
-    req: ['sh','hip','ankle'],
+    req: ['sh','el','hip','ankle'],
     joint(P) { return angle(P.sh, P.hip, P.ankle); },
+    // Стойка планки, а не «лёг на пол» (у лежащего линия тоже прямая!):
+    // корпус горизонтален И плечи подняты над опорой (локтем/ладонью).
+    ready(P) {
+      const torso = Math.hypot(P.sh.x - P.hip.x, P.sh.y - P.hip.y) || 1e-6;
+      const horizontal = Math.abs(P.sh.y - P.hip.y) < 0.6 * torso;
+      const lift = P.el.y - P.sh.y; // локоть ниже плеча = опора
+      return horizontal && lift > 0.22 * torso;
+    },
+    readyPrompt: 'ВСТАНЬ В ПЛАНКУ',
     // прямая линия: без провисания таза и без «домика»
     form(P) { return angle(P.sh, P.hip, P.ankle) >= 160; },
     trackExtra() { return false; },
@@ -753,13 +762,25 @@ function analyze(lm){
     holdLast = null; // пауза удержания, пока человек не в кадре
     return;
   }
-  step({ a: EX.joint(P), formOk: EX.form(P), extra: EX.trackExtra(P) },
-       performance.now());
+  step({
+    a: EX.joint(P),
+    formOk: EX.form(P),
+    extra: EX.trackExtra(P),
+    ready: EX.ready ? EX.ready(P) : true,
+  }, performance.now());
 }
 
 // Шаг стейт-машины. Отделён от MediaPipe, чтобы гонять синтетические кадры.
 function step(f, t){
   const { a, formOk, extra } = f;
+
+  // Режим удержания: сначала проверяем стойку. Лёг/встал — таймер на паузе.
+  if (EX.hold && f.ready === false){
+    setPrompt(EX.readyPrompt || 'ЗАЙМИ ИСХОДНУЮ', 'bad');
+    holdLast = null;
+    return;
+  }
+
   const [txt, cls] = EX.live(phase, extra || curExtra, formOk);
   setPrompt(txt, cls);
 
@@ -1245,7 +1266,8 @@ window.__sim = (key, frames) => {
   simMode = true;
   EX = EXERCISES[key]; EXKEY = key;
   resetAnalysis();
-  frames.forEach((f, i) => step({ formOk: true, extra: false, a: 180, ...f }, i * 100));
+  frames.forEach((f, i) =>
+      step({ formOk: true, extra: false, a: 180, ready: true, ...f }, i * 100));
   showResult();
   $('result').style.display = 'none';
   simMode = false;
